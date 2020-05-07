@@ -14,7 +14,7 @@ echo -n >map.list
 
 echo sha256sums: sha256sums.txt >>map.list
 
-x86bin="`find bin/targets/ | grep -- '\(-combined\|-uefi\)' | sort | while read line; do basename $line; done`"
+x86bin="`find bin/targets/ | grep -- '\(-combined\|-uefi\|combined-efi\)' | sort | while read line; do basename $line; done`"
 test -n "$x86bin" && {
 	echo x86_64 or x86:
 	echo "$x86bin"
@@ -26,16 +26,16 @@ test -n "$x86bin" && {
 	for bin in $x86bin; do
 		echo "$sha256sums" | grep "$bin" >>sha256sums.txt
 		case $bin in
-			*x86-64-combined*)
+			*x86-64-combined*|*x86-64-generic-ext4-combined\.*)
 				x86_64_combined="${x86_64_combined} $bin"
 			;;
-			*x86-64-uefi*)
+			*x86-64-uefi*|*x86-64-generic-ext4-combined-efi\.*)
 				x86_64_uefi="${x86_64_uefi} $bin"
 			;;
-			*x86-generic-combined*)
+			*x86-generic-combined*|*x86-generic-generic-ext4-combined\.*)
 				x86_generic_combined="${x86_generic_combined} $bin"
 			;;
-			*x86-generic-uefi*)
+			*x86-generic-uefi*|*x86-generic-generic-ext4-combined-efi\.*)
 				x86_generic_uefi="${x86_generic_uefi} $bin"
 			;;
 			*)
@@ -43,10 +43,11 @@ test -n "$x86bin" && {
 			;;
 		esac
 	done
-	echo "x86 64bits (MBR dos):`echo -n ${x86_64_combined}`" >>map.list
-	echo "x86 64bits (UEFI gpt):`echo -n ${x86_64_uefi}`" >>map.list
-	echo "x86 generic (MBR dos):`echo -n ${x86_generic_combined}`" >>map.list
-	echo "x86 generic (UEFI gpt):`echo -n ${x86_generic_uefi}`" >>map.list
+
+	test -n "${x86_64_combined}" && echo "x86 64bits (MBR dos):`echo -n ${x86_64_combined}`" >>map.list
+	test -n "${x86_64_uefi}" && echo "x86 64bits (UEFI gpt):`echo -n ${x86_64_uefi}`" >>map.list
+	test -n "${x86_generic_combined}" && echo "x86 generic (MBR dos):`echo -n ${x86_generic_combined}`" >>map.list
+	test -n "${x86_generic_uefi}" && echo "x86 generic (UEFI gpt):`echo -n ${x86_generic_uefi}`" >>map.list
 }
 
 for t in $targets; do
@@ -111,6 +112,12 @@ for t in $targets; do
 				}
 			}
 		}
+
+		test -n "$bin" || {
+			echo no image found for "$dis"
+			exit 255
+		}
+
 		echo "`echo $dis`:"
 		for i in $bin; do
 			echo $i;

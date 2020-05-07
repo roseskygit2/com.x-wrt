@@ -121,6 +121,9 @@ natcapd_boot() {
 	exit 0
 }
 
+enabled="`uci get natcapd.default.enabled 2>/dev/null || echo 0`"
+led="`uci get natcapd.default.led 2>/dev/null`"
+
 client_mac=`cat $DEV | grep default_mac_addr | grep -o "[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]"`
 account="`uci get natcapd.default.account 2>/dev/null`"
 uhash=`echo -n $client_mac$account | cksum | awk '{print $1}'`
@@ -137,6 +140,10 @@ echo protocol=$protocol >>$DEV
 # si_mask default 0xff000000
 si_mask=`uci get natcapd.default.si_mask 2>/dev/null || echo 4278190080`
 echo si_mask=${si_mask} >>$DEV
+
+# ni_mask default 0x00800000
+ni_mask=`uci get natcapd.default.ni_mask 2>/dev/null || echo 8388608`
+echo ni_mask=${ni_mask} >>$DEV
 
 ACC="$account"
 CLI=`echo $client_mac | sed 's/:/-/g' | tr a-z A-Z`
@@ -166,7 +173,7 @@ natcapd_get_flows()
 natcap_setup_firewall()
 {
 	block_dns6="`uci get natcapd.default.block_dns6 2>/dev/null || echo 0`"
-	if [ "x$block_dns6" = "x1" ]; then
+	if [ "x$block_dns6" = "x1" -a "x$enabled" = "x1" ]; then
 		uci get firewall.natcap_dns1 >/dev/null 2>&1 || {
 			uci set firewall.natcap_dns1=rule
 			uci set firewall.natcap_dns1.enabled='1'
@@ -195,26 +202,26 @@ natcap_setup_firewall()
 	fi
 }
 
-natcap_wan_ip()
+cone_wan_ip()
 {
 	full_cone_nat="`uci get natcapd.default.full_cone_nat 2>/dev/null || echo 0`"
 	if [ "x$full_cone_nat" = "x0" ]; then
-		ipset destroy natcap_wan_ip >/dev/null 2>&1
+		ipset destroy cone_wan_ip >/dev/null 2>&1
 	else
-		ipset create natcap_wan_ip iphash hashsize 32 maxelem 256 >/dev/null 2>&1
-		ipset flush natcap_wan_ip
+		ipset create cone_wan_ip iphash hashsize 32 maxelem 256 >/dev/null 2>&1
+		ipset flush cone_wan_ip
 		devs=`ip r | grep default | grep -o "dev ".* | awk '{print $2}'`
 		for dev in $devs; do
 			ips=`ip addr list dev $dev | grep -o inet" ".* | awk '{print $2}' | cut -d/ -f1`
 			for ip in $ips; do
-				ipset add natcap_wan_ip $ip >/dev/null 2>&1
+				ipset add cone_wan_ip $ip >/dev/null 2>&1
 			done
 		done
 	fi
 }
 
-[ x$1 = xnatcap_wan_ip ] && {
-	natcap_wan_ip
+[ x$1 = xcone_wan_ip ] && {
+	cone_wan_ip
 	exit 0
 }
 
@@ -245,27 +252,30 @@ add_server () {
 	local enc_mode=$3
 
 	if echo $server | grep -q '\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)$'; then
-		echo server $server:0-$opt-$enc_mode >>$DEV
+		echo server 0 $server:0-$opt-$enc_mode >>$DEV
 	elif echo $server | grep -q '\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\):[0-9]\{1,5\}$'; then
-		echo server $server-$opt-$enc_mode >$DEV
+		echo server 0 $server-$opt-$enc_mode >$DEV
 	elif echo $server | grep -q '\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\):[0-9]\{1,5\}-[eo]$'; then
-		echo server $server-$enc_mode >>$DEV
+		echo server 0 $server-$enc_mode >>$DEV
 	elif echo $server | grep -q '\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\):[0-9]\{1,5\}-[eo]-[TU]-[UT]$'; then
-		echo server $server >>$DEV
+		echo server 0 $server >>$DEV
 	fi
 }
-add_udproxylist () {
-	ipset -! add udproxylist $1
-}
 add_gfwlist () {
-	ipset -! add gfwlist $1
+	ipset -! add gfwlist0 $1
+}
+add_gfw_udp_port_list () {
+	ipset -! add gfw_udp_port_list0 $1
+}
+add_app_list () {
+	ipset -! add app_list0 $1
 }
 add_knocklist () {
 	ipset -! add knocklist $1
 }
 add_gfwlist_domain () {
 	echo server=/$1/8.8.8.8 >>/tmp/dnsmasq.d/custom-domains.gfwlist.dnsmasq.conf
-	echo ipset=/$1/gfwlist >>/tmp/dnsmasq.d/custom-domains.gfwlist.dnsmasq.conf
+	echo ipset=/$1/gfwlist0 >>/tmp/dnsmasq.d/custom-domains.gfwlist.dnsmasq.conf
 }
 
 _reload_natcapd() {
@@ -318,8 +328,8 @@ natcap_id2mask() {
 
 natcap_target2idx() {
 	local idx=1
-	(cat $DEV | grep "^server " | while read line; do
-		if echo $line | grep -q "server $1:"; then
+	(cat $DEV | grep "^server 0 " | while read line; do
+		if echo $line | grep -q "server 0 $1$"; then
 			echo $idx
 			return
 		fi
@@ -342,25 +352,76 @@ _setup_natcap_rules() {
 	idx_mask=`printf "0x%x" $si_mask`
 
 	local id=0
+	while uci get natcapd.@ruleset[$id].dst >/dev/null 2>&1; do
+		local src target idx
+		dst=`uci get natcapd.@ruleset[$id].dst`
+		src=`uci get natcapd.@ruleset[$id].src`
+		target=`uci get natcapd.@ruleset[$id].target`
+		echo "$target" | grep -q : || target="$target:65535-e-T-U"
+		idx=`natcap_target2idx $target`
+		if test $idx -ne 0; then
+			ipset -n list $dst >/dev/null 2>&1 || {
+				ipset destroy $dst >/dev/null 2>&1
+				ipset create $dst hash:net family inet hashsize 1024 maxelem 16384
+			}
+			idx=`natcap_id2mask $idx $idx_mask`
+			if echo $src | grep -q '\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)'; then
+				iptables -t mangle -A PREROUTING -m mark --mark 0x0/$idx_mask -m conntrack --ctstate NEW -s $src --match set --match-set $dst dst -m comment --comment "natcap-rule" -j MARK --set-xmark $idx/$idx_mask
+			else
+				iptables -t mangle -A PREROUTING -m mark --mark 0x0/$idx_mask -m conntrack --ctstate NEW -m mac --mac-source $src --match set --match-set $dst dst -m comment --comment "natcap-rule" -j MARK --set-xmark $idx/$idx_mask
+			fi
+		fi
+		id=$((id+1))
+	done
+
+	local id=0
 	while uci get natcapd.@rule[$id].src >/dev/null 2>&1; do
-		local src=`uci get natcapd.@rule[$id].src`
-		local target=`uci get natcapd.@rule[$id].target`
-		local idx=`natcap_target2idx $target`
+		local src target idx
+		src=`uci get natcapd.@rule[$id].src`
+		target=`uci get natcapd.@rule[$id].target`
+		echo "$target" | grep -q : || target="$target:65535-e-T-U"
+		idx=`natcap_target2idx $target`
 		if test $idx -ne 0; then
 			idx=`natcap_id2mask $idx $idx_mask`
 			if echo $src | grep -q '\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)\.\([0-9]\{1,3\}\)'; then
-				iptables -t mangle -A PREROUTING -m conntrack --ctstate NEW -s $src -m comment --comment "natcap-rule" -j MARK --set-xmark $idx/$idx_mask
+				iptables -t mangle -A PREROUTING -m mark --mark 0x0/$idx_mask -m conntrack --ctstate NEW -s $src -m comment --comment "natcap-rule" -j MARK --set-xmark $idx/$idx_mask
 			else
-				iptables -t mangle -A PREROUTING -m conntrack --ctstate NEW -m mac --mac-source $src -m comment --comment "natcap-rule" -j MARK --set-xmark $idx/$idx_mask
+				iptables -t mangle -A PREROUTING -m mark --mark 0x0/$idx_mask -m conntrack --ctstate NEW -m mac --mac-source $src -m comment --comment "natcap-rule" -j MARK --set-xmark $idx/$idx_mask
 			fi
 		fi
 		id=$((id+1))
 	done
 }
 
-natcap_wan_ip
+get_rate_data()
+{
+	local cnt num unit
+	echo -n $1 | grep -qi "bps$" || {
+		num=$1
+		echo -n $((num)) # assume num B/s
+		return
+	}
+	cnt=`echo -n $1 | wc -c || echo 0`
+	test $cnt -le 4 && echo -n 0 && return # assume 0 B/s
 
-enabled="`uci get natcapd.default.enabled 2>/dev/null || echo 0`"
+	num=`echo -n $1 | cut -c0-$((cnt-4))`
+	unit=`echo -n $1 | cut -c$((cnt-3))-$cnt | tr A-Z a-z`
+	case $unit in
+		"kbps")
+			num=$((num*128))
+		;;
+		"mbps")
+			num=$((num*128*1024))
+		;;
+		"gbps")
+			num=$((num*128*1024*1024))
+		;;
+		*)
+			num=$((num/8))
+		;;
+	esac
+	echo -n $num # assume num bps
+}
 
 # reload firewall
 uci get firewall.natcapd >/dev/null 2>&1 || {
@@ -404,6 +465,10 @@ test -c $DEV && {
 	echo natcap_max_pmtu=${natcap_max_pmtu} >$DEV
 }
 
+ipset -n list wechat_iplist >/dev/null 2>&1 || ipset -! create wechat_iplist iphash hashsize 1024 maxelem 65536
+
+test -n "$led" && echo "$enabled" >>"$led"
+
 if [ "x$enabled" = "x0" ] && test -c $DEV; then
 	natcapd_stop
 	rm -f /tmp/natcapd_to_cn
@@ -418,6 +483,7 @@ elif test -c $DEV; then
 	server_persist_timeout=`uci get natcapd.default.server_persist_timeout 2>/dev/null || echo 300`
 	server_persist_lock=`uci get natcapd.default.server_persist_lock 2>/dev/null || echo 0`
 	dns_proxy_drop=`uci get natcapd.default.dns_proxy_drop 2>/dev/null || echo 0`
+	peer_multipath=`uci get natcapd.default.peer_multipath 2>/dev/null || echo 0`
 	tx_speed_limit=`uci get natcapd.default.tx_speed_limit 2>/dev/null || echo 0`
 	rx_speed_limit=`uci get natcapd.default.rx_speed_limit 2>/dev/null || echo 0`
 	tx_pkts_threshold=`uci get natcapd.default.tx_pkts_threshold 2>/dev/null || echo 128`
@@ -426,10 +492,11 @@ elif test -c $DEV; then
 	servers=`uci get natcapd.default.server 2>/dev/null`
 	dns_server=`uci get natcapd.default.dns_server 2>/dev/null`
 	knocklist=`uci get natcapd.default.knocklist 2>/dev/null`
-	udproxylist=`uci get natcapd.default.udproxylist 2>/dev/null`
 	dnsdroplist=`uci get natcapd.default.dnsdroplist 2>/dev/null`
 	gfwlist_domain=`uci get natcapd.default.gfwlist_domain 2>/dev/null`
 	gfwlist=`uci get natcapd.default.gfwlist 2>/dev/null`
+	gfw_udp_port_list=`uci get natcapd.default.gfw_udp_port_list 2>/dev/null`
+	app_list=`uci get natcapd.default.app_list 2>/dev/null`
 	encode_mode=`uci get natcapd.default.encode_mode 2>/dev/null || echo 0`
 	udp_encode_mode=`uci get natcapd.default.udp_encode_mode 2>/dev/null || echo 0`
 	sproxy=`uci get natcapd.default.sproxy 2>/dev/null || echo 0`
@@ -439,6 +506,9 @@ elif test -c $DEV; then
 	[ x$encode_mode = x1 ] && encode_mode=U
 	[ x$udp_encode_mode = x0 ] && udp_encode_mode=U
 	[ x$udp_encode_mode = x1 ] && udp_encode_mode=T
+
+	tx_speed_limit=`get_rate_data "$tx_speed_limit"`
+	rx_speed_limit=`get_rate_data "$rx_speed_limit"`
 
 	encode_http_only=`uci get natcapd.default.encode_http_only 2>/dev/null || echo 0`
 	http_confusion=`uci get natcapd.default.http_confusion 2>/dev/null || echo 0`
@@ -463,6 +533,10 @@ elif test -c $DEV; then
 		cniplist_set=/usr/share/natcapd/local.set
 	fi
 
+	if [ x$cnipwhitelist_mode = x2 ]; then
+		cniplist_set=/usr/share/natcapd/local.set
+	fi
+
 	ipset destroy dnsdroplist >/dev/null 2>&1
 	if test -n "$dnsdroplist"; then
 		ipset -n list dnsdroplist >/dev/null 2>&1 || ipset -! create dnsdroplist nethash hashsize 64 maxelem 1024
@@ -471,10 +545,20 @@ elif test -c $DEV; then
 		done
 	fi
 
-	ipset -n list udproxylist >/dev/null 2>&1 || ipset -! create udproxylist iphash hashsize 64 maxelem 1024
-	ipset -n list gfwlist >/dev/null 2>&1 || ipset -! create gfwlist iphash hashsize 1024 maxelem 65536
+	ipset -n list gfwlist0 >/dev/null 2>&1 || ipset -! create gfwlist0 nethash hashsize 1024 maxelem 65536
+
+	ipset destroy gfw_udp_port_list0 >/dev/null 2>&1
+	if test -n "$gfw_udp_port_list"; then
+		ipset -n list gfw_udp_port_list0 >/dev/null 2>&1 || ipset -! create gfw_udp_port_list0 bitmap:port range 0-65535
+	fi
+
+	ipset destroy app_list0 >/dev/null 2>&1
+	if test -n "$app_list"; then
+		ipset -n list app_list0 >/dev/null 2>&1 || ipset -! create app_list0 hash:net,port hashsize 1024 maxelem 65536
+	fi
+
 	ipset -n list knocklist >/dev/null 2>&1 || ipset -! create knocklist iphash hashsize 64 maxelem 1024
-	ipset -n list bypasslist >/dev/null 2>&1 || ipset -! create bypasslist iphash hashsize 1024 maxelem 65536
+	ipset -n list bypasslist >/dev/null 2>&1 || ipset -! create bypasslist nethash hashsize 1024 maxelem 65536
 
 	ipset destroy cniplist >/dev/null 2>&1
 	echo 'create cniplist hash:net family inet hashsize 4096 maxelem 65536' >/tmp/cniplist.set
@@ -489,6 +573,7 @@ elif test -c $DEV; then
 	echo server_persist_timeout=$server_persist_timeout >>$DEV
 	echo server_persist_lock=$server_persist_lock >>$DEV
 	echo dns_proxy_drop=$dns_proxy_drop >>$DEV
+	echo peer_multipath=$peer_multipath >>$DEV
 	echo tx_speed_limit=$tx_speed_limit >>$DEV
 	echo rx_speed_limit=$rx_speed_limit >>$DEV
 	echo tx_pkts_threshold=$tx_pkts_threshold >>$DEV
@@ -496,8 +581,6 @@ elif test -c $DEV; then
 	echo natcap_touch_timeout=$touch_timeout >>$DEV
 	echo sproxy=$sproxy >$DEV
 	test -n "$dns_server" && echo dns_server=$dns_server >$DEV
-
-	[ "x$clear_dst_on_reload" = x1 ] && ipset flush gfwlist
 
 	echo encode_http_only=$encode_http_only >>$DEV
 	echo http_confusion=$http_confusion >>$DEV
@@ -552,11 +635,14 @@ elif test -c $DEV; then
 		add_knocklist $k
 	done
 
-	for u in $udproxylist; do
-		add_udproxylist $u
-	done
 	for g in $gfwlist; do
 		add_gfwlist $g
+	done
+	for g in $gfw_udp_port_list; do
+		add_gfw_udp_port_list $g
+	done
+	for a in $app_list; do
+		add_app_list $a
 	done
 
 	rm -f /tmp/dnsmasq.d/custom-domains.gfwlist.dnsmasq.conf
@@ -581,6 +667,9 @@ fi
 test -f /usr/share/natcapd/natcapd.pptpd.sh && sh /usr/share/natcapd/natcapd.pptpd.sh
 #reload openvpn
 test -f /usr/share/natcapd/natcapd.openvpn.sh && sh /usr/share/natcapd/natcapd.openvpn.sh
+#reload cone_nat_unused
+test -f /usr/share/natcapd/natcapd.cone_nat_unused.sh && sh /usr/share/natcapd/natcapd.cone_nat_unused.sh init
+cone_wan_ip
 
 cd /tmp
 
@@ -721,6 +810,7 @@ main_trigger() {
 	while :; do
 		test -f $LOCKDIR/$PID || return 0
 		test -p /tmp/trigger_natcapd_update.fifo || { sleep 1 && continue; }
+		ping -q -W3 -c1 8.8.8.8 || ping -q -W3 -c1 114.114.114.114 || { sleep 11 && continue; }
 		mytimeout 660 'cat /tmp/trigger_natcapd_update.fifo' >/dev/null && {
 			rm -f /tmp/xx.tmp.json
 			rm -f /tmp/nohup.out

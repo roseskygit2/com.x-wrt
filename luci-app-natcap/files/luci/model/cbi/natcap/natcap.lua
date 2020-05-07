@@ -110,6 +110,57 @@ e = s:taboption("system", Flag, "full_proxy", translate("Full Proxy"), translate
 e.default = e.disabled
 e.rmempty = false
 
+local speed_validate = function(self, value)
+	if not value or value == 0 or value == "0" then
+		return value
+	end
+
+	local i, j
+	local v
+
+	i, j = value:find("Kbps$") or value:find("kbps$")
+	if i then
+		v = tonumber(value:sub(0, i - 1))
+		if not v then
+			return nil, translate("Invalid rate limit")
+		end
+		value = v .. "Kbps"
+		return value
+	end
+
+	i, j = value:find("Mbps$") or value:find("mbps$")
+	if i then
+		v = tonumber(value:sub(0, i - 1))
+		if not v then
+			return nil, translate("Invalid rate limit")
+		end
+		value = v .. "Mbps"
+		return value
+	end
+
+	i, j = value:find("Gbps$") or value:find("gbps$")
+	if i then
+		v = tonumber(value:sub(0, i - 1))
+		if not v then
+			return nil, translate("Invalid rate limit")
+		end
+		value = v .. "Gbps"
+		return value
+	end
+
+	return nil, translate("Invalid rate limit")
+end
+
+e = s:taboption("system", Value, "rx_speed_limit", translate("Download rate limit"), translate("Unit: <code>Kbps</code> <code>Mbps</code> <code>Gbps</code> Example: 10Mbps or 0 = no limit"))
+e.placeholder = '0Mbps'
+e.rmempty = true
+e.validate = speed_validate
+
+e = s:taboption("system", Value, "tx_speed_limit", translate("Upload rate limit"), translate("Unit: <code>Kbps</code> <code>Mbps</code> <code>Gbps</code> Example: 10Mbps or 0 = no limit"))
+e.placeholder = '0Mbps'
+e.rmempty = true
+e.validate = speed_validate
+
 e = s:taboption("system", Flag, "peer_sni_ban", translate("Disable Remote Mgr"))
 e.default = e.disabled
 e.rmempty = false

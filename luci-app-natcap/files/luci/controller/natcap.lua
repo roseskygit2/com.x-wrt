@@ -22,6 +22,7 @@ function index()
 	page.i18n = "natcap"
 	page.dependent = true
 	end
+	page.acl_depends = { "luci-app-natcap" }
 
 	entry({"admin", "services", "natcap", "get_natcap_flows0"}, call("get_natcap_flows0")).leaf = true
 	entry({"admin", "services", "natcap", "get_natcap_flows1"}, call("get_natcap_flows1")).leaf = true
@@ -33,10 +34,12 @@ function index()
 	page = entry({"admin", "vpn", "natcapd_vpn"}, cbi("natcap/natcapd_vpn"), _("One Key VPN"))
 	page.i18n = "natcap"
 	page.dependent = true
+	page.acl_depends = { "luci-app-natcap" }
 
-	page = entry({"admin", "services", "natcapd_sys"}, cbi("natcap/natcapd_sys"), _("System Optimization"))
+	page = entry({"admin", "system", "natcapd_sys"}, cbi("natcap/natcapd_sys"), _("System Optimization"))
 	page.i18n = "natcap"
 	page.dependent = true
+	page.acl_depends = { "luci-app-natcap" }
 
 	if ui == "simple" then
 	page = entry({"admin", "natcap_route"}, cbi("natcap/natcap_route"), _("Route Setup"))
@@ -47,6 +50,7 @@ function index()
 	page.i18n = "natcap"
 	page.dependent = true
 	end
+	page.acl_depends = { "luci-app-natcap" }
 end
 
 function status()
@@ -63,7 +67,7 @@ function status()
 	local oldrx = oldtxrx:gsub("(%w+) (%w+)", "%2")
 
 	local data = {
-		cur_server = text:gsub(".*current_server=(.-)\n.*", "%1"),
+		cur_server = text:gsub(".*current_server0=(.-)\n.*", "%1"),
 		uhash = text:gsub(".*u_hash=(.-)\n.*", "%1"),
 		client_mac = text:gsub(".*default_mac_addr=(..):(..):(..):(..):(..):(..)\n.*", "%1%2%3%4%5%6"),
 		total_tx = text:gsub(".*flow_total_tx_bytes=(.-)\n.*", "%1"),
@@ -96,7 +100,7 @@ function change_server()
 
 	local text = ut.trim(sys.exec("cat /dev/natcap_ctl"))
 	local data = {
-		cur_server = text:gsub(".*current_server=(.-)\n.*", "%1"),
+		cur_server = text:gsub(".*current_server0=(.-)\n.*", "%1"),
 	}
 
 	http.prepare_content("application/json")

@@ -19,9 +19,12 @@ mkdir -p .build_x
 echo "CONFIG_VERSION_NUMBER=\"$CONFIG_VERSION_NUMBER\"" >.build_x/env
 sleep 5
 
+echo modifying luci Makefile
 find feeds/luci/ -type f | grep -v .git\* | while read file; do
-	sed -i 's/192\.168\.1\./192\.168\.15\./g' "$file" && echo modifying $file
+	sed -i 's/192\.168\.1\./192\.168\.15\./g' "$file"
 done
+
+touchlist="feeds/luci/applications/luci-app-sqm/Makefile"
 
 for i in $IDXS; do
 	touch ./package/base-files/Makefile
@@ -34,15 +37,33 @@ for i in $IDXS; do
 		sed -i "s/CONFIG_VERSION_NUMBER=\".*\"/CONFIG_VERSION_NUMBER=\"$CONFIG_VERSION_NUMBER\"/" ./.config
 		sed -i "s/CONFIG_VERSION_DIST=\".*\"/CONFIG_VERSION_DIST=\"$CONFIG_VERSION_DIST\"/" ./.config
 		sed -i "s/CONFIG_VERSION_CODE=\".*\"/CONFIG_VERSION_CODE=\"$CONFIG_VERSION_CODE\"/" ./.config
+		sed -i "s%CONFIG_VERSION_HOME_URL=\".*\"%CONFIG_VERSION_HOME_URL=\"$CONFIG_VERSION_HOME_URL\"%" ./.config
+		sed -i "s%CONFIG_VERSION_BUG_URL=\".*\"%CONFIG_VERSION_BUG_URL=\"$CONFIG_VERSION_BUG_URL\"%" ./.config
+		sed -i "s%CONFIG_VERSION_SUPPORT_URL=\".*\"%CONFIG_VERSION_SUPPORT_URL=\"$CONFIG_VERSION_SUPPORT_URL\"%" ./.config
 		sed -i "s%CONFIG_VERSION_MANUFACTURER_URL=\".*\"%CONFIG_VERSION_MANUFACTURER_URL=\"$CONFIG_VERSION_MANUFACTURER_URL\"%" ./.config
 		sleep 2
-		touch ./package/base-files/files/etc/openwrt_release
-		touch ./feeds/packages/libs/libgpg-error/Makefile
 		new_arch=$(cat .config | grep CONFIG_TARGET_ARCH_PACKAGES | cut -d\" -f2)
 		new_subarch=$(cat .config | grep -o  "CONFIG_TARGET_[a-z0-9]*_[a-z0-9]*=y" | sed 's/=y//' | cut -d_ -f3,4)
 		test -n "$last_arch" || last_arch=$new_arch
 		test -n "$last_subarch" || last_subarch=$new_subarch
 		set +x
+		[ "x$WORKFLOW" = x1 ] || {
+			# skip touch if WORKFLOW == 1
+			touch ./package/base-files/files/etc/openwrt_release
+			touch ./feeds/packages/libs/libgpg-error/Makefile
+			find package -type f -name Makefile -exec touch {} \;
+			#touch Makefile contains LINUX_[0-9].*
+			find feeds/packages/ package/ feeds/luci/ feeds/routing/ feeds/telephony/ feeds/x/ -type f -name Makefile | while read f; do
+				grep -q 'LINUX_[0-9].*' $f && touch $f && echo touch $f
+			done
+			#touch contains '@lt\|@le\|@gt\|@ge'
+			find feeds/packages/ package/ feeds/luci/ feeds/routing/ feeds/telephony/ feeds/x/ -type f -name '*.mk' -o -name Makefile | while read f; do
+				grep -q '@lt\|@le\|@gt\|@ge\|+.*:' $f && touch $f && echo touch $f
+			done
+			for f in touchlist; do
+				touch $f && echo touch $f
+			done
+		}
 		[ "x$TMPFS" = x1 ] && {
 			if [ "$last_arch" != "$new_arch" ]; then
 				rm -rf build_dir/target-* build_dir/toolchain-*

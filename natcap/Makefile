@@ -9,8 +9,8 @@ include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=natcap
-PKG_VERSION:=7.0.1
-PKG_RELEASE:=ebb8a4c942f54788bd8ab60baadb8476f7088a86
+PKG_VERSION:=8.0.0
+PKG_RELEASE:=285732134298696c2d5212c7c8544eee6ac7d3b7
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION)-$(PKG_RELEASE).tar.xz
 PKG_SOURCE_URL:=https://github.com/ptpt52/natcap.git
@@ -132,6 +132,7 @@ define Package/natcapd/install
 	$(INSTALL_DIR) $(1)/usr/share/natcapd
 	$(INSTALL_DATA) ./files/natcapd.pptpd.sh $(1)/usr/share/natcapd/natcapd.pptpd.sh
 	$(INSTALL_DATA) ./files/natcapd.openvpn.sh $(1)/usr/share/natcapd/natcapd.openvpn.sh
+	$(INSTALL_DATA) ./files/natcapd.cone_nat_unused.sh $(1)/usr/share/natcapd/natcapd.cone_nat_unused.sh
 	$(INSTALL_DIR) $(1)/usr/share/natcapd/openvpn
 	$(INSTALL_DATA) ./files/openvpn/client.conf $(1)/usr/share/natcapd/openvpn/client.conf
 	$(INSTALL_DATA) ./files/openvpn/client.key $(1)/usr/share/natcapd/openvpn/client.key
@@ -160,7 +161,10 @@ endef
 include $(INCLUDE_DIR)/kernel-defaults.mk
 
 define Build/Compile/natcap
-	$(MAKE) $(KERNEL_MAKEOPTS) SUBDIRS="$(PKG_BUILD_DIR)" modules
+	+$(MAKE) $(PKG_JOBS) -C "$(LINUX_DIR)" \
+		$(KERNEL_MAKE_FLAGS) \
+		M="$(PKG_BUILD_DIR)" \
+		modules
 endef
 
 define Build/Compile/natcapd-client

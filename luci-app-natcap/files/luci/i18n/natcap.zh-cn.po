@@ -217,6 +217,9 @@ msgstr "为每一组内网用户分配出口网关"
 msgid "From Client(s)"
 msgstr "内网用户"
 
+msgid "To Destination"
+msgstr "访问的目标"
+
 msgid "Target Gateway"
 msgstr "出口网关"
 
@@ -228,3 +231,15 @@ msgstr "请选择……"
 
 msgid "Server List"
 msgstr "服务器列表"
+
+msgid "Download rate limit"
+msgstr "下行速度限制"
+
+msgid "Upload rate limit"
+msgstr "上行速度限制"
+
+msgid "Unit: <code>Kbps</code> <code>Mbps</code> <code>Gbps</code> Example: 10Mbps or 0 = no limit"
+msgstr "单位: <code>Kbps</code> <code>Mbps</code> <code>Gbps</code> 例如: 10Mbps 或者 0 = 无限制"
+
+msgid "Invalid rate limit"
+msgstr "速度限制错误"
